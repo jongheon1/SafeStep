@@ -1,22 +1,19 @@
 from fastapi import FastAPI
 from fastapi import Body, Form, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
-import json
-import nest_asyncio
-from pyngrok import ngrok
 import uvicorn
-from pydantic import BaseModel
+from dotenv import load_dotenv
+import os
+
 from langchain_community.document_loaders import PyPDFDirectoryLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_openai import OpenAIEmbeddings
 from langchain_chroma import Chroma
-import os
 from langchain_openai import ChatOpenAI
 from langchain.schema.runnable import RunnableMap
 from langchain.prompts import PromptTemplate
 from langchain.callbacks.base import BaseCallbackHandler
 from langchain.schema import Document
-from dotenv import load_dotenv
 from langchain_community.document_loaders import PyMuPDFLoader
 
 load_dotenv()
@@ -90,9 +87,9 @@ def upload_pdf(db, uploaded_file):
         print(f"Loaded and stored {len(texts)} chunks")
 
 async def convert_pdf_to_text(uploaded_file):
-    # PDF 파일을 텍스트로 변환하는 함수
+    content = await uploaded_file.read()  
     with open("temp.pdf", "wb") as f:
-        f.write(uploaded_file.read())
+        f.write(content)
     
     loader = PyMuPDFLoader("temp.pdf")
     documents = loader.load()
@@ -152,7 +149,7 @@ template = """
 prompt = PromptTemplate(template=template, input_variables=["question", "context"])
 
 inputs = RunnableMap({
-    'context': lambda x: retriever.get_relevant_documents(x['question']),
+    'context': lambda x: retriever.invoke(x['question']),
     'question': lambda x: x['question']
 })
 chain = inputs | prompt | chat_model
@@ -172,11 +169,13 @@ app.add_middleware(
 async def ask_question(question: str = Form(...), file: UploadFile = File(None)):
     pdf_text = ""
     if file is not None:
-        pdf_text = convert_pdf_to_text(file)
+        pdf_text = await convert_pdf_to_text(file)
     combined_question = question + "\n" + pdf_text
     response = chain.invoke({'question': question})
     answer = response.content
-    source = retriever.get_relevant_documents(question)
+    docs = retriever.invoke(question)  
+    
+    source = [{"source": get_file_title(doc.metadata['source']), "page": doc.metadata['page'], "content": doc.page_content} for doc in docs]
 
     return {
         "answer": answer,
@@ -184,78 +183,4 @@ async def ask_question(question: str = Form(...), file: UploadFile = File(None))
     }
 
 if __name__ == "__main__":
-    # ngrok_tunnel = ngrok.connect(8000)
-    # print('Public URL:', ngrok_tunnel.public_url)
-    # nest_asyncio.apply()
     uvicorn.run(app, host="0.0.0.0", port=8000)
-
-
-# # Streamlit 앱
-# if 'messages' not in st.session_state:
-#     st.session_state.messages = []
-
-# # 제목과 소개
-# st.title("SafeStep - 당신의 안전한 첫 걸음을 도와드립니다!")
-# st.markdown("""
-# **근로 시간 관련 문제로 어려움을 겪고 계신가요?**  
-# 저희 SafeStep 챗봇이 도와드립니다! 주 52시간제, 초과 근무 수당 미지급, 포괄임금제 문제 등 다양한 근로 시간 관련 문제를 해결하기 위한 법적 조언과 가이드를 제공합니다.  
-# **지금 바로 질문해보세요!** 우리의 AI 상담원이 신속하고 정확하게 답변해드립니다.
-# """)
-
-# # PDF 파일 업로드 섹션
-# uploaded_file = st.file_uploader("문제를 겪고 있는 문서를 업로드하세요 📄", type="pdf")
-
-# if uploaded_file is not None:
-#     upload_pdf(db, uploaded_file)
-#     st.success("파일이 성공적으로 업로드되었습니다. 🔥 이제 질문을 입력해보세요!")
-
-# # 채팅 메시지 표시
-# for message in st.session_state.messages:
-#     st.chat_message(message['role']).markdown(message['content'])
-
-# # 질문 입력 섹션
-# if question := st.chat_input("메시지를 입력하세요 📝:"):
-#     st.session_state.messages.append({"role": "human", "content": question})
-
-#     with st.chat_message('human'):
-#         st.markdown(question)
-
-#     with st.chat_message('assistant'):
-#         response_placeholder = st.empty()
-
-#     response = chain.invoke({'question': question}, config={'callbacks': [StreamHandler(response_placeholder)]})
-#     answer = response.content
-
-#     st.session_state.messages.append({"role": "ai", "content": answer})
-#     response_placeholder.markdown(answer)
-
-#     docs = retriever.get_relevant_documents(question)
-#     if docs:
-#         with st.expander("🔍 참고 자료 확인"):
-#             for i, doc in enumerate(docs, start=1):
-#                 st.markdown(f"##### 출처 {i}")
-#                 st.markdown(f"- {get_file_title(doc.metadata['source'])} / {doc.metadata['page']}p")
-#                 st.markdown("##### 내용")
-#                 st.markdown(doc.page_content)
-#                 st.markdown("---")
-
-
-# # 입력값에 대한 답변 생성
-# while True:
-#     query = input("Ask a question (or type 'exit' to quit): ")
-#     if query.lower() == "exit":
-#         break
-
-#     response = chain.invoke({'question': query})
-#     answer = response.content
-
-#     print(answer)
-
-#     docs = retriever.get_relevant_documents(query)
-
-#     sources = "\nSources:\n"
-#     for doc in docs:
-#         sources += f"- {doc.metadata['source']} {doc.metadata['page']} page\n"
-#         sources += f"  Content: {doc.page_content}\n"
-
-#     print(sources)

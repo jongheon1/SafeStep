@@ -3,4 +3,8 @@ uvicorn
 langchain
 langchain-openai
 langchain-chroma
+langchain-community
 python-dotenv
+chromadb
+requests
+PyMuPDF
