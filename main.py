@@ -8,7 +8,6 @@ from langchain_openai import ChatOpenAI
 from langchain.schema.runnable import RunnableMap
 from langchain.prompts import PromptTemplate
 from langchain.callbacks.base import BaseCallbackHandler
-from langchain.schema import Document
 from dotenv import load_dotenv
 from langchain_community.document_loaders import PyMuPDFLoader
 
@@ -146,7 +145,7 @@ template = """
 prompt = PromptTemplate(template=template, input_variables=["question", "context"])
 
 inputs = RunnableMap({
-    'context': lambda x: retriever.get_relevant_documents(x['question']),
+    'context': lambda x: retriever.invoke(x['question']),
     'question': lambda x: x['question']
 })
 chain = inputs | prompt | chat_model
@@ -218,7 +217,7 @@ if question := st.chat_input("메시지를 입력하세요 📝:") or button_pre
     st.session_state.messages.append({"role": "ai", "content": answer})
     response_placeholder.markdown(answer)
 
-    docs = retriever.get_relevant_documents(question)
+    docs = retriever.invoke(question)
     if docs:
         with st.expander("🔍 참고 자료 확인"):
             for i, doc in enumerate(docs, start=1):
