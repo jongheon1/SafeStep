@@ -1,6 +1,7 @@
-fastapi
+streamlit
 uvicorn
 langchain
 langchain-openai
 langchain-chroma
 python-dotenv
+langchain_community

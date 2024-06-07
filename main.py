@@ -1,11 +1,4 @@
-from fastapi import FastAPI
-from fastapi import Body, Form, UploadFile, File
-from fastapi.middleware.cors import CORSMiddleware
-import json
-import nest_asyncio
-from pyngrok import ngrok
-import uvicorn
-from pydantic import BaseModel
+import streamlit as st
 from langchain_community.document_loaders import PyPDFDirectoryLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_openai import OpenAIEmbeddings
@@ -18,6 +11,7 @@ from langchain.callbacks.base import BaseCallbackHandler
 from langchain.schema import Document
 from dotenv import load_dotenv
 from langchain_community.document_loaders import PyMuPDFLoader
+
 
 load_dotenv()
 persist_directory = os.getenv('PERSIST_DIRECTORY')
@@ -51,7 +45,7 @@ def get_retriever(db):
     retriever = db.as_retriever(search_kwargs={"k": 5})
     return retriever
 
-def load_and_store_pdf(db, chunk_size=1000, chunk_overlap=200):
+def load_and_store_pdf(db, chunk_size=1000, chunk_overlap=50):
     # PDF 파일 로드
     loader = PyPDFDirectoryLoader('./')
     pages = loader.load_and_split()
@@ -71,7 +65,7 @@ def load_and_store_pdf(db, chunk_size=1000, chunk_overlap=200):
 def upload_pdf(db, uploaded_file):
     if uploaded_file is not None:
 
-        filepath = "./uploaded/" + uploaded_file.filename
+        filepath = "./uploaded/" + uploaded_file.name
         with open(filepath, 'wb') as f:
             f.write(uploaded_file.getbuffer())
         
@@ -89,7 +83,7 @@ def upload_pdf(db, uploaded_file):
 
         print(f"Loaded and stored {len(texts)} chunks")
 
-async def convert_pdf_to_text(uploaded_file):
+def convert_pdf_to_text(uploaded_file):
     # PDF 파일을 텍스트로 변환하는 함수
     with open("temp.pdf", "wb") as f:
         f.write(uploaded_file.read())
@@ -104,7 +98,7 @@ def get_file_title(file_path):
     base_name = os.path.basename(file_path)  # 파일 이름과 확장자 추출
     file_title = os.path.splitext(base_name)[0]  # 확장자 제거
     return file_title
-     
+
 
 db = setup_chroma(persist_directory, collection_name, openai_api_key)
 
@@ -157,105 +151,80 @@ inputs = RunnableMap({
 })
 chain = inputs | prompt | chat_model
 
-app = FastAPI()
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=['*'],
-    allow_credentials=True,
-    allow_methods=['*'],
-    allow_headers=['*'],
-)
 
 
-@app.post("/ask")
-async def ask_question(question: str = Form(...), file: UploadFile = File(None)):
+# Streamlit 앱
+
+if 'messages' not in st.session_state:
+    st.session_state.messages = []
+
+
+
+st.title("SafeStep")
+st.subheader("당신의 안전한 첫 걸음을 도와드립니다")
+
+# PDF 파일 업로드 섹션
+uploaded_file = st.file_uploader("겪고 있는 문제와 관련있는 문서를 업로드하세요 📄", type="pdf")
+
+if uploaded_file is not None:
+    st.success("파일이 성공적으로 업로드되었습니다. 🔥 이제 질문을 입력해보세요!")
+
+# 채팅 메시지 표시
+for message in st.session_state.messages:
+    st.chat_message(message['role']).markdown(message['content'])
+
+example_prompts1 = [
+    "매주 60시간 이상 근무하고 있지만, 초과 수당을 받지 못하고 있어요. 어떻게 해야 할까요?",
+    "수습 기간 중인데, 정당한 이유 없이 갑자기 해고 통보를 받았습니다. 이럴 땐 어떤 조치를 취해야 하나요?",
+    "포괄임금제 계약서에 사인했는데, 과도한 야근에 시달리고 있습니다. 계약서 내용이 부당하다고 느껴지는데 어떻게 대응해야 할지 모르겠어요."
+]
+example_prompts2 = [
+    "3개월 째 임금을 받지 못하고 있습니다. 회사가 계속 미룹니다. 제 권리를 지키려면 어떻게 해야 하죠?",
+    "주 52시간제가 시행 중인데, 회사에서 초과 근무를 강요하고 있습니다. 거절하면 불이익을 줄 것 같아 두렵습니다. 조언 부탁드려요.",
+    "퇴직 후에도 임금 체불 문제로 고생 중입니다. 회사가 계속 지급을 미루고 있습니다. 이럴 땐 어떻게 해야 하나요?"
+]
+
+button_cols1 = st.columns(3)
+button_cols2 = st.columns(3)
+
+button_pressed = ""
+
+for i, prompt in enumerate(example_prompts1):
+    if button_cols1[i].button(prompt):
+        button_pressed = prompt
+
+for i, prompt in enumerate(example_prompts2):
+    if button_cols2[i].button(prompt):
+        button_pressed = prompt
+
+# 질문 입력 섹션
+if question := st.chat_input("메시지를 입력하세요 📝:") or button_pressed:
+    st.session_state.messages.append({"role": "human", "content": question})
+
+    with st.chat_message('human'):
+        st.markdown(question)
+
+    with st.chat_message('assistant'):
+        response_placeholder = st.empty()
+
     pdf_text = ""
-    if file is not None:
-        pdf_text = convert_pdf_to_text(file)
+    if uploaded_file is not None:
+        pdf_text = convert_pdf_to_text(uploaded_file)
     combined_question = question + "\n" + pdf_text
-    response = chain.invoke({'question': question})
+
+    response = chain.invoke({'question': combined_question}, config={'callbacks': [StreamHandler(response_placeholder)]})
     answer = response.content
-    source = retriever.get_relevant_documents(question)
 
-    return {
-        "answer": answer,
-        "source": source
-    }
+    st.session_state.messages.append({"role": "ai", "content": answer})
+    response_placeholder.markdown(answer)
 
-if __name__ == "__main__":
-    # ngrok_tunnel = ngrok.connect(8000)
-    # print('Public URL:', ngrok_tunnel.public_url)
-    # nest_asyncio.apply()
-    uvicorn.run(app, host="0.0.0.0", port=8000)
-
-
-# # Streamlit 앱
-# if 'messages' not in st.session_state:
-#     st.session_state.messages = []
-
-# # 제목과 소개
-# st.title("SafeStep - 당신의 안전한 첫 걸음을 도와드립니다!")
-# st.markdown("""
-# **근로 시간 관련 문제로 어려움을 겪고 계신가요?**  
-# 저희 SafeStep 챗봇이 도와드립니다! 주 52시간제, 초과 근무 수당 미지급, 포괄임금제 문제 등 다양한 근로 시간 관련 문제를 해결하기 위한 법적 조언과 가이드를 제공합니다.  
-# **지금 바로 질문해보세요!** 우리의 AI 상담원이 신속하고 정확하게 답변해드립니다.
-# """)
-
-# # PDF 파일 업로드 섹션
-# uploaded_file = st.file_uploader("문제를 겪고 있는 문서를 업로드하세요 📄", type="pdf")
-
-# if uploaded_file is not None:
-#     upload_pdf(db, uploaded_file)
-#     st.success("파일이 성공적으로 업로드되었습니다. 🔥 이제 질문을 입력해보세요!")
-
-# # 채팅 메시지 표시
-# for message in st.session_state.messages:
-#     st.chat_message(message['role']).markdown(message['content'])
-
-# # 질문 입력 섹션
-# if question := st.chat_input("메시지를 입력하세요 📝:"):
-#     st.session_state.messages.append({"role": "human", "content": question})
-
-#     with st.chat_message('human'):
-#         st.markdown(question)
-
-#     with st.chat_message('assistant'):
-#         response_placeholder = st.empty()
-
-#     response = chain.invoke({'question': question}, config={'callbacks': [StreamHandler(response_placeholder)]})
-#     answer = response.content
-
-#     st.session_state.messages.append({"role": "ai", "content": answer})
-#     response_placeholder.markdown(answer)
-
-#     docs = retriever.get_relevant_documents(question)
-#     if docs:
-#         with st.expander("🔍 참고 자료 확인"):
-#             for i, doc in enumerate(docs, start=1):
-#                 st.markdown(f"##### 출처 {i}")
-#                 st.markdown(f"- {get_file_title(doc.metadata['source'])} / {doc.metadata['page']}p")
-#                 st.markdown("##### 내용")
-#                 st.markdown(doc.page_content)
-#                 st.markdown("---")
-
-
-# # 입력값에 대한 답변 생성
-# while True:
-#     query = input("Ask a question (or type 'exit' to quit): ")
-#     if query.lower() == "exit":
-#         break
-
-#     response = chain.invoke({'question': query})
-#     answer = response.content
-
-#     print(answer)
-
-#     docs = retriever.get_relevant_documents(query)
-
-#     sources = "\nSources:\n"
-#     for doc in docs:
-#         sources += f"- {doc.metadata['source']} {doc.metadata['page']} page\n"
-#         sources += f"  Content: {doc.page_content}\n"
-
-#     print(sources)
+    docs = retriever.get_relevant_documents(question)
+    if docs:
+        with st.expander("🔍 참고 자료 확인"):
+            for i, doc in enumerate(docs, start=1):
+                st.markdown(f"##### 출처 {i}")
+                st.markdown(f"- {get_file_title(doc.metadata['source'])} / {doc.metadata['page']}p")
+                st.markdown("##### 내용")
+                st.markdown(doc.page_content)
+                st.markdown("---")# 질문 입력 섹션
+                
