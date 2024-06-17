@@ -31,10 +31,8 @@ class StreamHandler(BaseCallbackHandler):
         self.container.markdown(self.text + "▌")
 
 def setup_chroma(persist_directory, collection_name, openai_api_key):
-    # OpenAIEmbeddings 객체 생성
     embeddings = OpenAIEmbeddings(openai_api_key=openai_api_key)
 
-    # Chroma 데이터베이스 설정
     db = Chroma(
         collection_name=collection_name,
         embedding_function=embeddings,
@@ -44,23 +42,19 @@ def setup_chroma(persist_directory, collection_name, openai_api_key):
     return db
 
 def get_retriever(db):
-    # Chroma 데이터베이스에서 retriever 가져오기
     retriever = db.as_retriever(search_kwargs={"k": 5})
     return retriever
 
 def load_and_store_pdf(db, chunk_size=1000, chunk_overlap=200):
-    # PDF 파일 로드
     loader = PyPDFDirectoryLoader('./')
     pages = loader.load_and_split()
 
-    # 텍스트 분할
     text_splitter = RecursiveCharacterTextSplitter(
         chunk_size=chunk_size,
         chunk_overlap=chunk_overlap
     )
     texts = text_splitter.split_documents(pages)
 
-    # Chroma 데이터베이스에 텍스트 삽입
     db.add_documents(texts)
 
     print(f"Loaded and stored {len(texts)} chunks")
@@ -81,7 +75,6 @@ def upload_pdf(db, uploaded_file):
         )
         texts = text_splitter.split_documents(pages)
 
-        # Chroma 데이터베이스에 텍스트 삽입
         db.add_documents(texts)
 
         print(f"Loaded and stored {len(texts)} chunks")
@@ -98,23 +91,19 @@ async def convert_pdf_to_text(uploaded_file):
 
 
 def get_file_title(file_path):
-    base_name = os.path.basename(file_path)  # 파일 이름과 확장자 추출
-    file_title = os.path.splitext(base_name)[0]  # 확장자 제거
+    base_name = os.path.basename(file_path)  
+    file_title = os.path.splitext(base_name)[0]  
     return file_title
      
 
 db = setup_chroma(persist_directory, collection_name, openai_api_key)
 
-# PDF 파일 로드 및 Chroma 데이터베이스에 삽입
 # load_and_store_pdf(db)
 
-# Retriever 가져오기
 retriever = get_retriever(db)
 
-# ChatOpenAI 모델 설정
 chat_model = ChatOpenAI(openai_api_key=openai_api_key, model_name="gpt-3.5-turbo")
 
-# 프롬프트 템플릿 설정
 template = """
 [ChatBot Prompt]
 당신은 SafeStep이라는 법률 상담 챗봇 어시스턴트입니다. 사회초년생들이 근로 문제를 해결할 수 있도록 친절하고 전문적인 조언을 제공하는 것이 당신의 역할입니다. 사용자의 질문에 답변할 때는 다음 사항을 고려하세요.
