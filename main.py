@@ -8,7 +8,6 @@ from langchain_openai import ChatOpenAI
 from langchain.schema.runnable import RunnableMap
 from langchain.prompts import PromptTemplate
 from langchain.callbacks.base import BaseCallbackHandler
-from langchain.schema import Document
 from dotenv import load_dotenv
 from langchain_community.document_loaders import PyMuPDFLoader
 

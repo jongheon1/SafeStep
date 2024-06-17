@@ -3,4 +3,7 @@ __pycache__/
 content/
 chroma/
 data/
+chroma/
 .env
+sqlite-autoconf-3410200
+sqlite-autoconf-3410200.tar.gz
